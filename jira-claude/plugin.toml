@@ -1,0 +1,15 @@
+[plugin]
+name = "jira-claude"
+version = "0.1.0"
+description = "Generate todos from Jira tickets using Claude AI"
+author = "grimurjonsson"
+license = "MIT"
+min_interface_version = "0.1.0"
+
+[permissions]
+subprocess = true  # Runs acli and claude commands
+
+[dependencies]
+# External commands required
+acli = { type = "command", purpose = "Fetch Jira ticket data" }
+claude = { type = "command", purpose = "AI-powered todo generation" }
