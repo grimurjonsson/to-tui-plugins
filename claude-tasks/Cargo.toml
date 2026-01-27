@@ -1,0 +1,30 @@
+[package]
+name = "claude-tasks"
+version = "0.1.0"
+edition = "2021"
+description = "Sync Claude Code's native task lists into totui in real-time"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Core - Required
+totui-plugin-interface = { git = "https://github.com/grimurjonsson/to-tui", branch = "main" }
+abi_stable = "0.11"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# File watching - Required
+notify = "8"
+notify-debouncer-full = "0.7"
+
+# Utilities - Required
+uuid = { version = "1.20", features = ["v4"] }
+dirs = "6"
+
+# Configuration
+toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3"
