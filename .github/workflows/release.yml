@@ -142,6 +142,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout main
           git add marketplace.toml
           git commit -m "chore: update marketplace.toml for ${GITHUB_REF_NAME}" || echo "No changes"
-          git push
+          git push origin main
