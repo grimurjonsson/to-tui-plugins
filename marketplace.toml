@@ -11,7 +11,7 @@
 # The downloads section is populated by CI after the first release.
 
 [marketplace]
-name = "to-tui-plugins"
+name = to-tui-plugins
 description = "Official plugin registry for to-tui"
 url = "https://github.com/grimurjonsson/to-tui-plugins"
 
@@ -20,3 +20,10 @@ name = jira-claude
 version = "0.1.5"
 description = "Generate todos from Jira tickets using Claude AI"
 # downloads section will be populated by release workflow
+
+[plugins.downloads]
+x86_64-unknown-linux-gnu = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/jira-claude-v0.1.5/jira-claude-x86_64-unknown-linux-gnu.tar.gz"
+aarch64-unknown-linux-gnu = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/jira-claude-v0.1.5/jira-claude-aarch64-unknown-linux-gnu.tar.gz"
+x86_64-apple-darwin = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/jira-claude-v0.1.5/jira-claude-x86_64-apple-darwin.tar.gz"
+aarch64-apple-darwin = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/jira-claude-v0.1.5/jira-claude-aarch64-apple-darwin.tar.gz"
+x86_64-pc-windows-msvc = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/jira-claude-v0.1.5/jira-claude-x86_64-pc-windows-msvc.zip"
