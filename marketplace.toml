@@ -10,6 +10,11 @@
 # Manual entries should only include name, version, and description.
 # The downloads section is populated by CI after the first release.
 
+[marketplace]
+name = "to-tui-plugins"
+description = "Official plugin registry for to-tui"
+url = "https://github.com/grimurjonsson/to-tui-plugins"
+
 [[plugins]]
 name = "jira-claude"
 version = "0.1.0"
