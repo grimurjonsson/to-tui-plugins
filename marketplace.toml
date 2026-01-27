@@ -11,12 +11,12 @@
 # The downloads section is populated by CI after the first release.
 
 [marketplace]
-name = to-tui-plugins
+name = "to-tui-plugins"
 description = "Official plugin registry for to-tui"
 url = "https://github.com/grimurjonsson/to-tui-plugins"
 
 [[plugins]]
-name = jira-claude
+name = "jira-claude"
 version = "0.1.5"
 description = "Generate todos from Jira tickets using Claude AI"
 # downloads section will be populated by release workflow
