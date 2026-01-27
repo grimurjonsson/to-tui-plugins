@@ -81,6 +81,20 @@ _release plugin bump msg="":
         echo "✓ $MANIFEST_FILE version: $NEW_VERSION"
     fi
 
+    # Update marketplace.toml version for this plugin
+    MARKETPLACE_FILE="marketplace.toml"
+    if [ -f "$MARKETPLACE_FILE" ]; then
+        # Find the plugin's [[plugins]] block and update its version
+        # This uses awk to update only the version in the correct plugin block
+        awk -v plugin="$PLUGIN" -v version="$NEW_VERSION" '
+            /^\[\[plugins\]\]/ { in_block=1; current="" }
+            in_block && /^name = / { gsub(/"/, "", $3); current=$3 }
+            in_block && /^version = / && current==plugin { $0="version = \"" version "\"" }
+            { print }
+        ' "$MARKETPLACE_FILE" > "${MARKETPLACE_FILE}.tmp" && mv "${MARKETPLACE_FILE}.tmp" "$MARKETPLACE_FILE"
+        echo "✓ $MARKETPLACE_FILE version: $NEW_VERSION"
+    fi
+
     # Update Cargo.lock
     cd "$PLUGIN" && cargo check --quiet && cd ..
     echo "✓ Updated Cargo.lock"
@@ -95,6 +109,9 @@ _release plugin bump msg="":
         git add "$CARGO_FILE"
         if [ -f "$MANIFEST_FILE" ]; then
             git add "$MANIFEST_FILE"
+        fi
+        if [ -f "$MARKETPLACE_FILE" ]; then
+            git add "$MARKETPLACE_FILE"
         fi
         git add "$PLUGIN/Cargo.lock"
 
