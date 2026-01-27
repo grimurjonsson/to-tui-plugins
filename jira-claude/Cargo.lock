@@ -376,6 +376,7 @@ dependencies = [
 [[package]]
 name = "totui-plugin-interface"
 version = "0.1.0"
+source = "git+https://github.com/grimurjonsson/to-tui?branch=main#4b669e27e030b8745643957fd16c1347c92bfe56"
 dependencies = [
  "abi_stable",
  "semver",
