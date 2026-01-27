@@ -58,17 +58,18 @@ jobs:
         run: |
           mkdir -p dist
           # Find the library file (could be .so or .dylib)
-          LIB_FILE=$(find target/${{ matrix.target }}/release -maxdepth 1 -name "libjira_claude.*" -type f | head -1)
+          LIB_FILE=$(find jira-claude/target/${{ matrix.target }}/release -maxdepth 1 -name "libjira_claude.*" -type f | head -1)
+          echo "Found library: $LIB_FILE"
           tar -czvf dist/jira-claude-${{ matrix.target }}.tar.gz \
             -C jira-claude plugin.toml README.md \
-            -C ../$(dirname $LIB_FILE) $(basename $LIB_FILE)
+            -C target/${{ matrix.target }}/release $(basename $LIB_FILE)
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist
-          $lib = Get-ChildItem -Path "target/${{ matrix.target }}/release" -Filter "jira_claude.dll" | Select-Object -First 1
+          $lib = Get-ChildItem -Path "jira-claude/target/${{ matrix.target }}/release" -Filter "jira_claude.dll" | Select-Object -First 1
           Compress-Archive -Path "jira-claude/plugin.toml", "jira-claude/README.md", $lib.FullName -DestinationPath "dist/jira-claude-${{ matrix.target }}.zip"
 
       - name: Upload artifact
