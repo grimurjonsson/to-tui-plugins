@@ -1,6 +1,6 @@
 [plugin]
 name = "jira-claude"
-version = "0.1.3"
+version = "0.1.4"
 description = "Generate todos from Jira tickets using Claude AI"
 author = "grimurjonsson"
 license = "MIT"
