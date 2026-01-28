@@ -71,11 +71,16 @@ jobs:
           PLUGIN_NAME="${{ steps.plugin.outputs.name }}"
           CRATE_NAME="${{ steps.plugin.outputs.crate_name }}"
           mkdir -p dist
-          # Find the library file (could be .so or .dylib)
-          LIB_FILE=$(find ${PLUGIN_NAME}/target/${{ matrix.target }}/release -maxdepth 1 -name "lib${CRATE_NAME}.*" -type f | head -1)
+          # Find the library file (.so on Linux, .dylib on macOS) - exclude .d files
+          LIB_FILE=$(find ${PLUGIN_NAME}/target/${{ matrix.target }}/release -maxdepth 1 \( -name "lib${CRATE_NAME}.so" -o -name "lib${CRATE_NAME}.dylib" \) -type f | head -1)
           echo "Found library: $LIB_FILE"
+          # Build list of files to include (plugin.toml required, README.md optional)
+          FILES_TO_INCLUDE="plugin.toml"
+          if [ -f "${PLUGIN_NAME}/README.md" ]; then
+            FILES_TO_INCLUDE="$FILES_TO_INCLUDE README.md"
+          fi
           tar -czvf dist/${PLUGIN_NAME}-${{ matrix.target }}.tar.gz \
-            -C ${PLUGIN_NAME} plugin.toml README.md \
+            -C ${PLUGIN_NAME} $FILES_TO_INCLUDE \
             -C target/${{ matrix.target }}/release $(basename $LIB_FILE)
 
       - name: Package (Windows)
@@ -86,7 +91,11 @@ jobs:
           $crateName = "${{ steps.plugin.outputs.crate_name }}"
           New-Item -ItemType Directory -Force -Path dist
           $lib = Get-ChildItem -Path "${pluginName}/target/${{ matrix.target }}/release" -Filter "${crateName}.dll" | Select-Object -First 1
-          Compress-Archive -Path "${pluginName}/plugin.toml", "${pluginName}/README.md", $lib.FullName -DestinationPath "dist/${pluginName}-${{ matrix.target }}.zip"
+          $filesToInclude = @("${pluginName}/plugin.toml", $lib.FullName)
+          if (Test-Path "${pluginName}/README.md") {
+            $filesToInclude += "${pluginName}/README.md"
+          }
+          Compress-Archive -Path $filesToInclude -DestinationPath "dist/${pluginName}-${{ matrix.target }}.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
