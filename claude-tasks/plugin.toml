@@ -1,0 +1,10 @@
+[plugin]
+name = "claude-tasks"
+version = "1.0.1"
+description = "Real-time sync of Claude Code tasks to totui"
+author = "grimurjonsson"
+license = "MIT"
+min_interface_version = "0.2.0"
+
+[permissions]
+# No special permissions needed - read-only file watching
