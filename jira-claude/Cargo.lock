@@ -148,7 +148,7 @@ checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
 
 [[package]]
 name = "jira-claude"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "abi_stable",
  "serde",
@@ -376,6 +376,7 @@ dependencies = [
 [[package]]
 name = "totui-plugin-interface"
 version = "0.3.0"
+source = "git+https://github.com/grimurjonsson/to-tui?branch=main#2bc6e8aed101fb2a2ce1f37c2fd1708bfc782ed4"
 dependencies = [
  "abi_stable",
  "semver",
