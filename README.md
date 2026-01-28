@@ -6,6 +6,7 @@ Official plugin registry for [to-tui](https://github.com/grimurjonsson/to-tui).
 
 | Plugin | Description | Version |
 |--------|-------------|---------|
+| [claude-tasks](./claude-tasks) | Real-time sync of Claude Code tasks to totui | 1.0.2 |
 | [jira-claude](./jira-claude) | Generate todos from Jira tickets using Claude AI | 0.1.0 |
 
 ## Installing Plugins
