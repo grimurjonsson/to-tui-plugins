@@ -306,7 +306,7 @@ impl Plugin for JiraClaudePlugin {
     }
 
     fn min_interface_version(&self) -> RString {
-        "0.1.0".into()
+        "0.3.0".into()
     }
 
     fn generate(&self, input: RString) -> RResult<RVec<FfiTodoItem>, RString> {
@@ -342,6 +342,10 @@ impl Plugin for JiraClaudePlugin {
     fn on_event(&self, _event: FfiEvent) -> RResult<FfiHookResponse, RString> {
         // No event handling
         RResult::ROk(FfiHookResponse::default())
+    }
+
+    fn set_notifier(&self, _notifier: totui_plugin_interface::UpdateNotifier) {
+        // This plugin doesn't use async updates, so we ignore the notifier
     }
 }
 

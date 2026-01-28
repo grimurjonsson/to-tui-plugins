@@ -180,3 +180,98 @@ check-deps plugin="jira-claude":
     else
         echo "✓ No path dependencies found"
     fi
+
+# Build and deploy plugin locally for testing in totui
+test-deploy plugin:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    PLUGIN="{{ plugin }}"
+    PLUGIN_DIR="$PLUGIN"
+
+    # Determine plugins directory based on OS (matches totui's get_plugins_dir)
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        PLUGINS_DEST="$HOME/Library/Application Support/to-tui/plugins/$PLUGIN"
+    elif [[ "$OSTYPE" == "linux"* ]]; then
+        PLUGINS_DEST="${XDG_DATA_HOME:-$HOME/.local/share}/to-tui/plugins/$PLUGIN"
+    elif [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "win32"* ]]; then
+        PLUGINS_DEST="$LOCALAPPDATA/to-tui/plugins/$PLUGIN"
+    else
+        PLUGINS_DEST="$HOME/.local/share/to-tui/plugins/$PLUGIN"
+    fi
+
+    # Validate plugin exists
+    if [ ! -d "$PLUGIN_DIR" ]; then
+        echo "Error: Plugin directory '$PLUGIN_DIR' not found"
+        exit 1
+    fi
+
+    if [ ! -f "$PLUGIN_DIR/Cargo.toml" ]; then
+        echo "Error: No Cargo.toml found in '$PLUGIN_DIR'"
+        exit 1
+    fi
+
+    if [ ! -f "$PLUGIN_DIR/plugin.toml" ]; then
+        echo "Error: No plugin.toml found in '$PLUGIN_DIR'"
+        echo "Create one with: name, version, description, min_interface_version"
+        exit 1
+    fi
+
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo " Building $PLUGIN..."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    cd "$PLUGIN_DIR" && cargo build --release
+    cd ..
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo " Deploying to $PLUGINS_DEST"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    # Create destination directory
+    mkdir -p "$PLUGINS_DEST"
+
+    # Determine library extension based on OS
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        LIB_EXT="dylib"
+    elif [[ "$OSTYPE" == "linux"* ]]; then
+        LIB_EXT="so"
+    elif [[ "$OSTYPE" == "msys"* ]] || [[ "$OSTYPE" == "win32"* ]]; then
+        LIB_EXT="dll"
+    else
+        echo "Warning: Unknown OS type '$OSTYPE', assuming .so extension"
+        LIB_EXT="so"
+    fi
+
+    # Convert plugin name to library name (hyphens to underscores)
+    LIB_NAME="lib${PLUGIN//-/_}.$LIB_EXT"
+    LIB_PATH="$PLUGIN_DIR/target/release/$LIB_NAME"
+
+    if [ ! -f "$LIB_PATH" ]; then
+        echo "Error: Built library not found at '$LIB_PATH'"
+        exit 1
+    fi
+
+    # Copy files
+    cp "$PLUGIN_DIR/plugin.toml" "$PLUGINS_DEST/"
+    cp "$LIB_PATH" "$PLUGINS_DEST/"
+
+    echo "✓ Copied plugin.toml"
+    echo "✓ Copied $LIB_NAME"
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo " Deployed successfully!"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "Contents of $PLUGINS_DEST:"
+    ls -la "$PLUGINS_DEST/"
+    echo ""
+    echo "To test:"
+    echo "  1. Start totui (or restart if already running)"
+    echo "  2. Press 'P' to open plugins menu"
+    echo "  3. Enable '$PLUGIN' if not already enabled"
+    echo ""
+    echo "To iterate:"
+    echo "  just test-deploy $PLUGIN"

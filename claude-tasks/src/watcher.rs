@@ -3,8 +3,8 @@
 //! Provides debounced file system watching for Claude tasklist directories.
 //! Events are sent via mpsc channel to the main plugin thread.
 
-use crate::errors::handle_notify_error;
 use crate::state::SyncEvent;
+use crate::{plugin_debug, plugin_info, SharedNotifier};
 use notify::RecursiveMode;
 use notify_debouncer_full::{new_debouncer, DebounceEventResult, DebouncedEvent};
 use std::path::PathBuf;
@@ -72,6 +72,7 @@ impl std::fmt::Debug for WatcherHandle {
 /// # Arguments
 /// * `tasklist_path` - The directory to watch (e.g., ~/.claude/tasks/{uuid}/)
 /// * `tx` - Channel sender for SyncEvent notifications
+/// * `notifier` - Shared notifier to wake up the host immediately when events occur
 ///
 /// # Returns
 /// * `Ok(WatcherHandle)` - Handle to the watcher thread
@@ -79,8 +80,10 @@ impl std::fmt::Debug for WatcherHandle {
 pub fn start_watcher(
     tasklist_path: PathBuf,
     tx: mpsc::Sender<SyncEvent>,
+    notifier: SharedNotifier,
 ) -> Result<WatcherHandle, String> {
     let tx_for_debouncer = tx.clone();
+    let notifier_for_debouncer = notifier.clone();
     let path_for_thread = tasklist_path.clone();
 
     // Create shutdown flag for graceful termination
@@ -95,10 +98,32 @@ pub fn start_watcher(
             None,
             move |result: DebounceEventResult| {
                 if let Ok(events) = result {
+                    let mut sent_any = false;
                     for event in events {
                         if let Some(sync_event) = translate_event(&event) {
+                            plugin_info!(
+                                "Watcher: File event detected: {}",
+                                match &sync_event {
+                                    SyncEvent::FileChanged(p) => format!("FileChanged({})", p.display()),
+                                    SyncEvent::FileRemoved(p) => format!("FileRemoved({})", p.display()),
+                                    SyncEvent::InitialScan => "InitialScan".to_string(),
+                                }
+                            );
                             // Ignore send errors - receiver might be dropped
                             let _ = tx_for_debouncer.send(sync_event);
+                            sent_any = true;
+                        }
+                    }
+                    // Wake up the host immediately after sending events
+                    if sent_any {
+                        plugin_debug!("Watcher: Calling notifier to wake host");
+                        if let Ok(guard) = notifier_for_debouncer.lock() {
+                            if let Some(n) = *guard {
+                                plugin_info!("Watcher: Notifier callback invoked");
+                                (n.func)();
+                            } else {
+                                plugin_debug!("Watcher: No notifier set yet");
+                            }
                         }
                     }
                 }
@@ -107,17 +132,16 @@ pub fn start_watcher(
 
         let mut debouncer = match debouncer_result {
             Ok(d) => d,
-            Err(e) => {
-                let plugin_error = handle_notify_error(&e);
-                eprintln!("claude-tasks: Failed to create debouncer: {}", plugin_error);
+            Err(_) => {
                 return;
             }
         };
 
         // Watch the tasklist directory
-        if let Err(e) = debouncer.watch(&path_for_thread, RecursiveMode::Recursive) {
-            let plugin_error = handle_notify_error(&e);
-            eprintln!("claude-tasks: {}", plugin_error);
+        if debouncer
+            .watch(&path_for_thread, RecursiveMode::Recursive)
+            .is_err()
+        {
             return;
         }
 

@@ -96,8 +96,8 @@ pub fn create_todo_commands_with_hierarchy(
         if hierarchy.is_cyclic(&task.id) {
             format!("{} {}", annotation, task.subject)
         } else {
-            // Blocked tasks: "Subject (blocked by: A, B)"
-            format!("{} {}", task.subject, annotation)
+            // Blocked tasks: "🔒 Subject (blocked by: A, B)"
+            format!("\u{1F512} {} {}", task.subject, annotation)
         }
     } else {
         // Normal content - just subject

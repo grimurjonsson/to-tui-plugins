@@ -14,6 +14,7 @@ pub mod discovery;
 pub mod errors;
 pub mod guidance;
 pub mod hierarchy;
+pub mod log;
 pub mod staleness;
 pub mod state;
 pub mod sync;
@@ -29,11 +30,11 @@ use config::{format_tasklist_display, generate_tasklist_options, load_config};
 use guidance::{clear_guidance, create_empty_tasklist_guidance, create_no_tasklist_guidance};
 use state::{new_shared_state, GuidanceState, SharedSyncState, SyncEvent};
 use std::sync::mpsc;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use totui_plugin_interface::{
     FfiCommand, FfiConfigField, FfiConfigSchema, FfiConfigType, FfiConfigValue, FfiEvent,
     FfiEventType, FfiHookResponse, FfiTodoItem, HostApi_TO, Plugin, PluginModule, PluginModule_Ref,
-    Plugin_TO,
+    Plugin_TO, UpdateNotifier,
 };
 use watcher::WatcherHandle;
 
@@ -54,6 +55,9 @@ extern "C" fn create_plugin() -> Plugin_TO<'static, RBox<()>> {
 // Plugin implementation
 // ============================================================================
 
+/// Shared notifier that can be passed to watcher thread.
+pub type SharedNotifier = Arc<Mutex<Option<UpdateNotifier>>>;
+
 /// The Claude Tasks plugin.
 ///
 /// Watches Claude Code task files and syncs them to totui in real-time.
@@ -66,6 +70,9 @@ pub struct ClaudeTasksPlugin {
     state: SharedSyncState,
     /// Handle to the file watcher thread
     watcher_handle: Mutex<Option<WatcherHandle>>,
+    /// Notifier callback to signal host when updates are ready.
+    /// Wrapped in Arc so it can be shared with the watcher thread.
+    notifier: SharedNotifier,
 }
 
 impl ClaudeTasksPlugin {
@@ -76,6 +83,15 @@ impl ClaudeTasksPlugin {
             tx: Mutex::new(None),
             state: new_shared_state(),
             watcher_handle: Mutex::new(None),
+            notifier: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// Notify the host that we have updates ready.
+    #[allow(dead_code)]
+    fn notify_host(&self) {
+        if let Some(notifier) = *self.notifier.lock().unwrap() {
+            (notifier.func)();
         }
     }
 }
@@ -123,12 +139,16 @@ impl ClaudeTasksPlugin {
                 Ok(event) => events.push(event),
                 Err(mpsc::TryRecvError::Empty) => break,
                 Err(mpsc::TryRecvError::Disconnected) => {
-                    eprintln!("claude-tasks: Watcher channel disconnected");
+                    // Channel closed - watcher thread ended
                     break;
                 }
             }
         }
         drop(rx_guard);
+
+        if !events.is_empty() {
+            plugin_debug!("process_sync_events_local: Draining {} events from channel", events.len());
+        }
 
         // Record update if we received any events
         if !events.is_empty() {
@@ -154,7 +174,6 @@ impl ClaudeTasksPlugin {
             // Update state
             let mut state = self.state.lock().unwrap();
             state.clear_guidance();
-            eprintln!("claude-tasks: Clearing guidance - FileChanged events indicate real tasks arrived");
         }
 
         // Process events
@@ -236,7 +255,7 @@ impl Plugin for ClaudeTasksPlugin {
     }
 
     fn min_interface_version(&self) -> RString {
-        "0.1.0".into()
+        "0.3.0".into()
     }
 
     fn generate(&self, _input: RString) -> RResult<RVec<FfiTodoItem>, RString> {
@@ -286,6 +305,32 @@ impl Plugin for ClaudeTasksPlugin {
     }
 
     fn on_config_loaded(&self, config: RHashMap<RString, FfiConfigValue>) {
+        // Check if user is changing tasklist selection
+        let new_tasklist_id = config
+            .get(&RString::from("tasklist"))
+            .and_then(|v| match v {
+                FfiConfigValue::String(s) => Some(s.to_string()),
+                _ => None,
+            });
+
+        // Prevent duplicate initialization - if watcher already exists for same tasklist, skip
+        {
+            let handle = self.watcher_handle.lock().unwrap();
+            let state = self.state.lock().unwrap();
+            if handle.is_some() {
+                // Check if this is a change to a different tasklist
+                let current_id = state.selected_tasklist.as_ref().and_then(|p| {
+                    p.file_name().and_then(|n| n.to_str()).map(|s| s.to_string())
+                });
+
+                if new_tasklist_id == current_id || new_tasklist_id.is_none() {
+                    // Already watching this tasklist
+                    return;
+                }
+                // User is switching tasklists - need to stop old watcher and start new one
+            }
+        }
+
         // Load plugin configuration (global + local merged)
         let plugin_config = load_config();
 
@@ -293,7 +338,6 @@ impl Plugin for ClaudeTasksPlugin {
         let tasklists = discovery::discover_tasklists();
 
         if tasklists.is_empty() {
-            eprintln!("claude-tasks: No tasklists found - showing setup guidance");
             let mut state = self.state.lock().unwrap();
             state.pending_commands = create_no_tasklist_guidance();
             state.set_guidance(GuidanceState::NoTasklists);
@@ -301,32 +345,29 @@ impl Plugin for ClaudeTasksPlugin {
         }
 
         // Check if user selected a specific tasklist via config
+        // If no tasklist is explicitly selected, do nothing (wait for user to select one)
         let selected = if let Some(FfiConfigValue::String(uuid)) =
             config.get(&RString::from("tasklist"))
         {
             let uuid_str = uuid.as_str();
+            if uuid_str.is_empty() {
+                // Empty string means no selection - wait for user to choose
+                return;
+            }
             // Find tasklist with matching UUID
-            tasklists
-                .iter()
-                .find(|t| t.id == uuid_str)
-                .cloned()
-                .unwrap_or_else(|| {
-                    eprintln!(
-                        "claude-tasks: Configured tasklist {} not found, falling back to first",
-                        uuid_str
-                    );
-                    tasklists[0].clone()
-                })
+            match tasklists.iter().find(|t| t.id == uuid_str).cloned() {
+                Some(t) => t,
+                None => {
+                    // Configured tasklist not found - don't auto-select another
+                    return;
+                }
+            }
         } else {
-            // Fall back to first tasklist if not specified
-            tasklists[0].clone()
+            // No tasklist specified in config - wait for user to select one
+            return;
         };
 
         let display_name = format_tasklist_display(&selected.id, &plugin_config);
-        eprintln!(
-            "claude-tasks: Watching tasklist: {} ({} tasks)",
-            display_name, selected.task_count
-        );
 
         // Store selected tasklist path and config in state
         // Initialize staleness tracker with configured threshold
@@ -350,14 +391,10 @@ impl Plugin for ClaudeTasksPlugin {
         // Store sender
         *self.tx.lock().unwrap() = Some(tx.clone());
 
-        // Start file watcher
-        match watcher::start_watcher(selected.path.clone(), tx) {
+        // Start file watcher with notifier for immediate host wakeup
+        match watcher::start_watcher(selected.path.clone(), tx, self.notifier.clone()) {
             Ok(handle) => {
                 *self.watcher_handle.lock().unwrap() = Some(handle);
-                eprintln!(
-                    "claude-tasks: Watcher started for {}",
-                    selected.path.display()
-                );
 
                 // Check if tasklist has any tasks - if empty, show waiting guidance
                 let tasks = discovery::scan_tasks_directory(&selected.path);
@@ -365,12 +402,10 @@ impl Plugin for ClaudeTasksPlugin {
                     let mut state = self.state.lock().unwrap();
                     state.pending_commands = create_empty_tasklist_guidance(&display_name);
                     state.set_guidance(GuidanceState::EmptyTasklist);
-                    eprintln!("claude-tasks: Empty tasklist - showing waiting guidance");
                 }
             }
             Err(e) => {
                 let error_msg = e.to_string();
-                eprintln!("claude-tasks: Failed to start watcher: {}", error_msg);
                 let mut state = self.state.lock().unwrap();
                 state.pending_commands = guidance::create_error_guidance(
                     "CLAUDE TASKS - Watcher Failed",
@@ -383,9 +418,7 @@ impl Plugin for ClaudeTasksPlugin {
         }
 
         // Send InitialScan event to trigger first sync
-        if let Err(e) = tx_for_initial.send(SyncEvent::InitialScan) {
-            eprintln!("claude-tasks: Failed to send InitialScan: {}", e);
-        }
+        let _ = tx_for_initial.send(SyncEvent::InitialScan);
     }
 
     fn subscribed_events(&self) -> RVec<FfiEventType> {
@@ -397,6 +430,8 @@ impl Plugin for ClaudeTasksPlugin {
 
     fn on_event(&self, event: FfiEvent) -> RResult<FfiHookResponse, RString> {
         if let FfiEvent::OnLoad { .. } = event {
+            plugin_info!("on_event: Received OnLoad event");
+
             // Check for pending guidance commands first
             let pending = {
                 let mut state = self.state.lock().unwrap();
@@ -404,10 +439,7 @@ impl Plugin for ClaudeTasksPlugin {
             };
 
             if !pending.is_empty() {
-                eprintln!(
-                    "claude-tasks: Returning {} pending guidance commands",
-                    pending.len()
-                );
+                plugin_info!("on_event: Returning {} pending guidance commands", pending.len());
                 return RResult::ROk(FfiHookResponse {
                     commands: pending.into_iter().collect(),
                 });
@@ -415,6 +447,7 @@ impl Plugin for ClaudeTasksPlugin {
 
             // Process pending sync events and return commands
             let mut commands = self.process_sync_events_local();
+            plugin_info!("on_event: Processed sync events, got {} commands", commands.len());
 
             // Check staleness and update header if needed
             let staleness_info = {
@@ -447,19 +480,17 @@ impl Plugin for ClaudeTasksPlugin {
                 }
             }
 
-            if !commands.is_empty() {
-                eprintln!(
-                    "claude-tasks: on_event returning {} commands",
-                    commands.len()
-                );
-            }
-
+            plugin_info!("on_event: Returning {} total commands", commands.len());
             return RResult::ROk(FfiHookResponse {
                 commands: commands.into_iter().collect(),
             });
         }
 
         RResult::ROk(FfiHookResponse::default())
+    }
+
+    fn set_notifier(&self, notifier: UpdateNotifier) {
+        *self.notifier.lock().unwrap() = Some(notifier);
     }
 }
 
