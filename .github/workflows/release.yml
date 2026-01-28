@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'jira-claude-v*'
+      - 'claude-tasks-v*'
 
 permissions:
   contents: write
@@ -34,6 +35,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Extract plugin name from tag
+        id: plugin
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          PLUGIN_NAME="${TAG%-v*}"
+          # Convert plugin name to crate name (replace - with _)
+          CRATE_NAME="${PLUGIN_NAME//-/_}"
+          echo "name=$PLUGIN_NAME" >> $GITHUB_OUTPUT
+          echo "crate_name=$CRATE_NAME" >> $GITHUB_OUTPUT
+        shell: bash
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -44,7 +56,7 @@ jobs:
         run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Build plugin
-        working-directory: jira-claude
+        working-directory: ${{ steps.plugin.outputs.name }}
         run: |
           if [ "${{ matrix.use_cross }}" = "true" ]; then
             cross build --release --target ${{ matrix.target }}
@@ -56,26 +68,30 @@ jobs:
       - name: Package (Unix)
         if: runner.os != 'Windows'
         run: |
+          PLUGIN_NAME="${{ steps.plugin.outputs.name }}"
+          CRATE_NAME="${{ steps.plugin.outputs.crate_name }}"
           mkdir -p dist
           # Find the library file (could be .so or .dylib)
-          LIB_FILE=$(find jira-claude/target/${{ matrix.target }}/release -maxdepth 1 -name "libjira_claude.*" -type f | head -1)
+          LIB_FILE=$(find ${PLUGIN_NAME}/target/${{ matrix.target }}/release -maxdepth 1 -name "lib${CRATE_NAME}.*" -type f | head -1)
           echo "Found library: $LIB_FILE"
-          tar -czvf dist/jira-claude-${{ matrix.target }}.tar.gz \
-            -C jira-claude plugin.toml README.md \
+          tar -czvf dist/${PLUGIN_NAME}-${{ matrix.target }}.tar.gz \
+            -C ${PLUGIN_NAME} plugin.toml README.md \
             -C target/${{ matrix.target }}/release $(basename $LIB_FILE)
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $pluginName = "${{ steps.plugin.outputs.name }}"
+          $crateName = "${{ steps.plugin.outputs.crate_name }}"
           New-Item -ItemType Directory -Force -Path dist
-          $lib = Get-ChildItem -Path "jira-claude/target/${{ matrix.target }}/release" -Filter "jira_claude.dll" | Select-Object -First 1
-          Compress-Archive -Path "jira-claude/plugin.toml", "jira-claude/README.md", $lib.FullName -DestinationPath "dist/jira-claude-${{ matrix.target }}.zip"
+          $lib = Get-ChildItem -Path "${pluginName}/target/${{ matrix.target }}/release" -Filter "${crateName}.dll" | Select-Object -First 1
+          Compress-Archive -Path "${pluginName}/plugin.toml", "${pluginName}/README.md", $lib.FullName -DestinationPath "dist/${pluginName}-${{ matrix.target }}.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: jira-claude-${{ matrix.target }}
+          name: ${{ steps.plugin.outputs.name }}-${{ matrix.target }}
           path: dist/*
 
   release:
