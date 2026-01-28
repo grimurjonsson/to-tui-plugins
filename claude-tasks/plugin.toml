@@ -1,6 +1,6 @@
 [plugin]
 name = "claude-tasks"
-version = "1.0.1"
+version = "1.0.2"
 description = "Real-time sync of Claude Code tasks to totui"
 author = "grimurjonsson"
 license = "MIT"

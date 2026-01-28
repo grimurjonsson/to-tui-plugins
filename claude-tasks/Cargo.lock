@@ -88,7 +88,7 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
 name = "claude-tasks"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "abi_stable",
  "dirs",
@@ -718,6 +718,7 @@ checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 [[package]]
 name = "totui-plugin-interface"
 version = "0.3.0"
+source = "git+https://github.com/grimurjonsson/to-tui?branch=main#2bc6e8aed101fb2a2ce1f37c2fd1708bfc782ed4"
 dependencies = [
  "abi_stable",
  "semver",
