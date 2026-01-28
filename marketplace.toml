@@ -16,8 +16,8 @@ description = "Official plugin registry for to-tui"
 url = "https://github.com/grimurjonsson/to-tui-plugins"
 
 [[plugins]]
-name = "jira-claude"
-version = "0.1.6"
+name = jira-claude
+version = "0.1.7"
 description = "Generate todos from Jira tickets using Claude AI"
 # downloads section will be populated by release workflow
 
