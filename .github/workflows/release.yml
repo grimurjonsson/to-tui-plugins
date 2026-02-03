@@ -1,4 +1,5 @@
 name: Release Plugin
+run-name: Release ${{ inputs.plugin && format('{0}-v{1}', inputs.plugin, inputs.version) || github.ref_name }}
 
 on:
   push:
