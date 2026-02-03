@@ -5,6 +5,19 @@ on:
     tags:
       - 'jira-claude-v*'
       - 'claude-tasks-v*'
+  workflow_dispatch:
+    inputs:
+      plugin:
+        description: 'Plugin to release'
+        required: true
+        type: choice
+        options:
+          - jira-claude
+          - claude-tasks
+      version:
+        description: 'Version number (e.g., 1.0.3)'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -35,15 +48,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Extract plugin name from tag
+      - name: Extract plugin name and version
         id: plugin
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          PLUGIN_NAME="${TAG%-v*}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PLUGIN_NAME="${{ inputs.plugin }}"
+            VERSION="${{ inputs.version }}"
+            TAG="${PLUGIN_NAME}-v${VERSION}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+            PLUGIN_NAME="${TAG%-v*}"
+            VERSION="${TAG#*-v}"
+          fi
           # Convert plugin name to crate name (replace - with _)
           CRATE_NAME="${PLUGIN_NAME//-/_}"
           echo "name=$PLUGIN_NAME" >> $GITHUB_OUTPUT
           echo "crate_name=$CRATE_NAME" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
         shell: bash
 
       - name: Install Rust
@@ -109,6 +131,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Compute release tag
+        id: release_info
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PLUGIN_NAME="${{ inputs.plugin }}"
+            VERSION="${{ inputs.version }}"
+            TAG="${PLUGIN_NAME}-v${VERSION}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+            PLUGIN_NAME="${TAG%-v*}"
+            VERSION="${TAG#*-v}"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "plugin_name=$PLUGIN_NAME" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -123,25 +161,23 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.release_info.outputs.tag }}
           files: release-assets/*
           generate_release_notes: true
 
       - name: Update marketplace.toml
         run: |
-          TAG="${GITHUB_REF_NAME}"
-          # Extract plugin name and version from tag (e.g., jira-claude-v0.1.0)
-          PLUGIN_NAME="${TAG%-v*}"
-          VERSION="${TAG#*-v}"
-
+          VERSION="${{ steps.release_info.outputs.version }}"
           # Update version in marketplace.toml using sed (simpler than awk)
           sed -i "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" marketplace.toml
 
       - name: Commit marketplace.toml
         run: |
+          TAG="${{ steps.release_info.outputs.tag }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin main
           git checkout main
           git add marketplace.toml
-          git commit -m "chore: update marketplace.toml for ${GITHUB_REF_NAME}" || echo "No changes"
+          git commit -m "chore: update marketplace.toml for ${TAG}" || echo "No changes"
           git push origin main
