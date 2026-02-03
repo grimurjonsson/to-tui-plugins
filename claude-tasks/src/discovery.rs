@@ -26,7 +26,8 @@ pub struct TasklistInfo {
 /// Discover all tasklist folders in `~/.claude/tasks/`.
 ///
 /// Returns an empty Vec if the tasks directory doesn't exist (not an error).
-/// Tasklists are sorted alphabetically by id.
+/// Empty tasklists (with no tasks) are excluded.
+/// Tasklists are sorted by most recently modified first.
 pub fn discover_tasklists() -> Vec<TasklistInfo> {
     let Some(home) = dirs::home_dir() else {
         return vec![];
@@ -75,8 +76,11 @@ pub fn discover_tasklists() -> Vec<TasklistInfo> {
         });
     }
 
-    // Sort alphabetically by id
-    tasklists.sort_by(|a, b| a.id.cmp(&b.id));
+    // Filter out empty tasklists
+    tasklists.retain(|t| t.task_count > 0);
+
+    // Sort by most recently modified first
+    tasklists.sort_by(|a, b| b.last_modified.cmp(&a.last_modified));
     tasklists
 }
 
