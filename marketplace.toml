@@ -16,14 +16,25 @@ description = "Official plugin registry for to-tui"
 url = "https://github.com/grimurjonsson/to-tui-plugins"
 
 [[plugins]]
-name = jira-claude
-version = "1.0.3"
+name = "jira-claude"
+version = "0.1.9"
 description = "Generate todos from Jira tickets using Claude AI"
-# downloads section will be populated by release workflow
 
 [plugins.downloads]
-x86_64-unknown-linux-gnu = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/jira-claude-v0.1.5/jira-claude-x86_64-unknown-linux-gnu.tar.gz"
-aarch64-unknown-linux-gnu = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/jira-claude-v0.1.5/jira-claude-aarch64-unknown-linux-gnu.tar.gz"
-x86_64-apple-darwin = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/jira-claude-v0.1.5/jira-claude-x86_64-apple-darwin.tar.gz"
-aarch64-apple-darwin = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/jira-claude-v0.1.5/jira-claude-aarch64-apple-darwin.tar.gz"
-x86_64-pc-windows-msvc = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/jira-claude-v0.1.5/jira-claude-x86_64-pc-windows-msvc.zip"
+x86_64-unknown-linux-gnu = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/jira-claude-v0.1.9/jira-claude-x86_64-unknown-linux-gnu.tar.gz"
+aarch64-unknown-linux-gnu = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/jira-claude-v0.1.9/jira-claude-aarch64-unknown-linux-gnu.tar.gz"
+x86_64-apple-darwin = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/jira-claude-v0.1.9/jira-claude-x86_64-apple-darwin.tar.gz"
+aarch64-apple-darwin = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/jira-claude-v0.1.9/jira-claude-aarch64-apple-darwin.tar.gz"
+x86_64-pc-windows-msvc = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/jira-claude-v0.1.9/jira-claude-x86_64-pc-windows-msvc.zip"
+
+[[plugins]]
+name = "claude-tasks"
+version = "1.0.3"
+description = "Task list integration for Claude Code sessions"
+
+[plugins.downloads]
+x86_64-unknown-linux-gnu = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/claude-tasks-v1.0.3/claude-tasks-x86_64-unknown-linux-gnu.tar.gz"
+aarch64-unknown-linux-gnu = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/claude-tasks-v1.0.3/claude-tasks-aarch64-unknown-linux-gnu.tar.gz"
+x86_64-apple-darwin = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/claude-tasks-v1.0.3/claude-tasks-x86_64-apple-darwin.tar.gz"
+aarch64-apple-darwin = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/claude-tasks-v1.0.3/claude-tasks-aarch64-apple-darwin.tar.gz"
+x86_64-pc-windows-msvc = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/claude-tasks-v1.0.3/claude-tasks-x86_64-pc-windows-msvc.zip"
