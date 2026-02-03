@@ -1,6 +1,6 @@
 [package]
 name = "claude-tasks"
-version = "1.0.2"
+version = "1.0.3"
 edition = "2021"
 description = "Sync Claude Code's native task lists into totui in real-time"
 license = "MIT"
