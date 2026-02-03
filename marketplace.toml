@@ -1,14 +1,7 @@
 # to-tui Plugin Marketplace
 #
-# This file is auto-updated by the release workflow when plugins are tagged.
-# When you push a tag like jira-claude-v0.1.0, the release workflow will:
-# 1. Build binaries for all platforms
-# 2. Create a GitHub release with the artifacts
-# 3. Update this file with actual download URLs
-# 4. Commit the updated marketplace.toml
-#
-# Manual entries should only include name, version, and description.
-# The downloads section is populated by CI after the first release.
+# This file lists available plugins. The download URLs are derived automatically
+# from the plugin name and version (not stored here).
 
 [marketplace]
 name = "to-tui-plugins"
@@ -20,21 +13,7 @@ name = "jira-claude"
 version = "0.1.9"
 description = "Generate todos from Jira tickets using Claude AI"
 
-[plugins.downloads]
-x86_64-unknown-linux-gnu = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/jira-claude-v0.1.9/jira-claude-x86_64-unknown-linux-gnu.tar.gz"
-aarch64-unknown-linux-gnu = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/jira-claude-v0.1.9/jira-claude-aarch64-unknown-linux-gnu.tar.gz"
-x86_64-apple-darwin = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/jira-claude-v0.1.9/jira-claude-x86_64-apple-darwin.tar.gz"
-aarch64-apple-darwin = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/jira-claude-v0.1.9/jira-claude-aarch64-apple-darwin.tar.gz"
-x86_64-pc-windows-msvc = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/jira-claude-v0.1.9/jira-claude-x86_64-pc-windows-msvc.zip"
-
 [[plugins]]
 name = "claude-tasks"
 version = "1.0.3"
 description = "Task list integration for Claude Code sessions"
-
-[plugins.downloads]
-x86_64-unknown-linux-gnu = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/claude-tasks-v1.0.3/claude-tasks-x86_64-unknown-linux-gnu.tar.gz"
-aarch64-unknown-linux-gnu = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/claude-tasks-v1.0.3/claude-tasks-aarch64-unknown-linux-gnu.tar.gz"
-x86_64-apple-darwin = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/claude-tasks-v1.0.3/claude-tasks-x86_64-apple-darwin.tar.gz"
-aarch64-apple-darwin = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/claude-tasks-v1.0.3/claude-tasks-aarch64-apple-darwin.tar.gz"
-x86_64-pc-windows-msvc = "https://github.com/grimurjonsson/to-tui-plugins/releases/download/claude-tasks-v1.0.3/claude-tasks-x86_64-pc-windows-msvc.zip"
