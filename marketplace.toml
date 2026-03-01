@@ -17,3 +17,8 @@ description = "Generate todos from Jira tickets using Claude AI"
 name = "claude-tasks"
 version = "1.0.3"
 description = "Task list integration for Claude Code sessions"
+
+[[plugins]]
+name = "cloud-sync"
+version = "0.1.0"
+description = "Sync totui projects and todos to the cloud for cross-device access"

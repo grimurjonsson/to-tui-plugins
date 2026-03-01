@@ -1,0 +1,10 @@
+[plugin]
+name = "cloud-sync"
+version = "0.1.0"
+description = "Sync totui projects and todos to the cloud for cross-device access"
+author = "grimurjonsson"
+license = "MIT"
+min_interface_version = "0.3.0"
+
+[permissions]
+network = true

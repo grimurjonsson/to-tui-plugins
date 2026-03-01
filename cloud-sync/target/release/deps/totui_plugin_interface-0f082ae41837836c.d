@@ -1,0 +1,16 @@
+/home/user/to-tui-plugins/cloud-sync/target/release/deps/totui_plugin_interface-0f082ae41837836c.d: /root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/lib.rs /root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/config.rs /root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/events.rs /root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/host_api.rs /root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/plugin.rs /root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/types.rs /root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/version.rs
+
+/home/user/to-tui-plugins/cloud-sync/target/release/deps/libtotui_plugin_interface-0f082ae41837836c.rlib: /root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/lib.rs /root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/config.rs /root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/events.rs /root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/host_api.rs /root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/plugin.rs /root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/types.rs /root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/version.rs
+
+/home/user/to-tui-plugins/cloud-sync/target/release/deps/libtotui_plugin_interface-0f082ae41837836c.rmeta: /root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/lib.rs /root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/config.rs /root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/events.rs /root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/host_api.rs /root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/plugin.rs /root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/types.rs /root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/version.rs
+
+/root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/lib.rs:
+/root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/config.rs:
+/root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/events.rs:
+/root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/host_api.rs:
+/root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/plugin.rs:
+/root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/types.rs:
+/root/.cargo/git/checkouts/to-tui-246362fb02deef3e/a239651/crates/totui-plugin-interface/src/version.rs:
+
+# env-dep:CARGO_PKG_NAME=totui-plugin-interface
+# env-dep:CARGO_PKG_VERSION=0.3.0
