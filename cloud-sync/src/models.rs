@@ -80,6 +80,34 @@ pub struct ApiError {
 }
 
 // ============================================================================
+// Device code auth types (RFC 8628)
+// ============================================================================
+
+/// Response from `POST /api/v1/auth/device` — initiates device code flow.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceCodeResponse {
+    pub device_code: String,
+    pub user_code: String,
+    pub verification_uri: String,
+    /// Poll interval in seconds.
+    pub interval: u64,
+    /// Seconds until the device code expires.
+    pub expires_in: u64,
+}
+
+/// Successful token response from `POST /api/v1/auth/device/token`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceTokenResponse {
+    pub access_token: String,
+}
+
+/// Request body for polling device token.
+#[derive(Debug, Serialize)]
+pub struct DeviceTokenRequest {
+    pub device_code: String,
+}
+
+// ============================================================================
 // Local sync state
 // ============================================================================
 
@@ -135,6 +163,9 @@ pub struct SyncState {
     pub id_map: HashMap<String, String>,
     /// Map of local todo_id -> cloud_id (reverse lookup)
     pub reverse_id_map: HashMap<String, String>,
+    /// Stored auth token from device code flow.
+    #[serde(default)]
+    pub auth_token: Option<String>,
 }
 
 impl SyncState {

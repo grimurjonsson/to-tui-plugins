@@ -7,20 +7,29 @@
 //!
 //! The plugin is configured through totui's plugin config UI:
 //! - `api_url` - Cloud API endpoint (e.g., "https://api.totui.app")
-//! - `api_key` - Authentication bearer token
 //! - `project_name` - Project name to sync (auto-creates if it doesn't exist)
 //! - `sync_interval` - Seconds between automatic syncs (default: 30)
+//!
+//! ## Authentication
+//!
+//! Uses OAuth 2.0 Device Authorization (RFC 8628). When the plugin starts
+//! without a stored token, it initiates a device code flow:
+//! 1. Plugin requests a device code from the server
+//! 2. User opens the provided URL in a browser to sign in
+//! 3. Plugin polls until auth completes, then stores the token locally
 //!
 //! ## Cloud API Contract
 //!
 //! The plugin communicates with any REST API that implements:
-//! - `GET    /api/v1/auth/verify`            - Verify API key
-//! - `GET    /api/v1/projects`               - List projects
-//! - `POST   /api/v1/projects`               - Create project
-//! - `GET    /api/v1/projects/{id}/todos`     - List todos
-//! - `POST   /api/v1/projects/{id}/sync`      - Bidirectional sync
-//! - `PUT    /api/v1/todos/{id}`              - Update single todo
-//! - `DELETE /api/v1/todos/{id}`              - Delete todo
+//! - `POST   /api/v1/auth/device`              - Initiate device code flow
+//! - `POST   /api/v1/auth/device/token`         - Poll for device token
+//! - `GET    /api/v1/auth/verify`               - Verify auth token
+//! - `GET    /api/v1/projects`                  - List projects
+//! - `POST   /api/v1/projects`                  - Create project
+//! - `GET    /api/v1/projects/{id}/todos`        - List todos
+//! - `POST   /api/v1/projects/{id}/sync`         - Bidirectional sync
+//! - `PUT    /api/v1/todos/{id}`                 - Update single todo
+//! - `DELETE /api/v1/todos/{id}`                 - Delete todo
 
 #![allow(non_local_definitions)]
 
@@ -35,6 +44,7 @@ use abi_stable::{
     std_types::{RBox, RHashMap, ROption, RResult, RString, RVec},
 };
 use api::CloudClient;
+use models::DeviceCodeResponse;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -69,20 +79,20 @@ type SharedNotifier = Arc<Mutex<Option<UpdateNotifier>>>;
 #[derive(Debug, Clone, Default)]
 struct PluginConfig {
     api_url: Option<String>,
-    api_key: Option<String>,
     project_name: Option<String>,
     sync_interval: u64,
 }
 
 impl PluginConfig {
     fn is_configured(&self) -> bool {
-        self.api_url.is_some() && self.api_key.is_some() && self.project_name.is_some()
+        self.api_url.is_some() && self.project_name.is_some()
     }
 }
 
 /// The Cloud Sync plugin.
 ///
 /// Syncs todos bidirectionally between totui and a cloud API.
+/// Authentication is handled automatically via device code flow.
 pub struct CloudSyncPlugin {
     /// Sync engine (manages state, performs sync operations)
     engine: Arc<SyncEngine>,
@@ -90,12 +100,10 @@ pub struct CloudSyncPlugin {
     config: Mutex<PluginConfig>,
     /// Channel to send messages to the background sync thread
     sync_tx: Mutex<Option<mpsc::Sender<SyncMessage>>>,
-    /// Pending commands to return to the host on next event
-    pending_commands: Mutex<Vec<FfiCommand>>,
+    /// Pending commands to return to the host on next event (shared with thread)
+    pending_commands: Arc<Mutex<Vec<FfiCommand>>>,
     /// Notifier callback for waking the host
     notifier: SharedNotifier,
-    /// Whether initial sync has been performed
-    initialized: Mutex<bool>,
 }
 
 impl CloudSyncPlugin {
@@ -107,20 +115,22 @@ impl CloudSyncPlugin {
                 ..Default::default()
             }),
             sync_tx: Mutex::new(None),
-            pending_commands: Mutex::new(Vec::new()),
+            pending_commands: Arc::new(Mutex::new(Vec::new())),
             notifier: Arc::new(Mutex::new(None)),
-            initialized: Mutex::new(false),
         }
     }
 
     /// Notify the host that we have updates ready.
     fn notify_host(&self) {
-        if let Some(notifier) = *self.notifier.lock().unwrap() {
-            (notifier.func)();
-        }
+        notify(&self.notifier);
     }
 
-    /// Start the background sync thread.
+    /// Start the background thread that handles auth + sync.
+    ///
+    /// The thread runs in two phases:
+    /// 1. **Auth phase**: If no stored token, initiates device code flow and
+    ///    polls until the user authenticates via browser.
+    /// 2. **Sync phase**: Periodically pulls remote changes and applies them.
     fn start_sync_thread(&self) {
         let config = self.config.lock().unwrap().clone();
         if !config.is_configured() {
@@ -137,172 +147,14 @@ impl CloudSyncPlugin {
 
         let engine = Arc::clone(&self.engine);
         let notifier = Arc::clone(&self.notifier);
+        let pending = Arc::clone(&self.pending_commands);
         let api_url = config.api_url.unwrap();
-        let api_key = config.api_key.unwrap();
         let project_name = config.project_name.unwrap();
-        let interval = Duration::from_secs(config.sync_interval);
+        let sync_interval = Duration::from_secs(config.sync_interval);
 
         thread::spawn(move || {
-            let client = CloudClient::new(&api_url, &api_key);
-
-            // Ensure project exists
-            let project_id = match engine.ensure_project(&client, &project_name) {
-                Ok(id) => id,
-                Err(e) => {
-                    tracing::error!("cloud-sync: Failed to ensure project: {}", e);
-                    return;
-                }
-            };
-
-            loop {
-                // Wait for either a sync message or timeout
-                match rx.recv_timeout(interval) {
-                    Ok(SyncMessage::SyncNow) => {
-                        // Triggered sync - pull latest state
-                        match engine.pull(&client, &project_id) {
-                            Ok(commands) => {
-                                if !commands.is_empty() {
-                                    // Store commands - they'll be picked up by on_event
-                                    // We can't directly access pending_commands from here,
-                                    // so we notify the host to poll us
-                                    tracing::info!(
-                                        "cloud-sync: Pull returned {} commands",
-                                        commands.len()
-                                    );
-                                }
-                                // Notify host to call on_event
-                                if let Some(n) = *notifier.lock().unwrap() {
-                                    (n.func)();
-                                }
-                            }
-                            Err(e) => {
-                                tracing::warn!("cloud-sync: Sync failed: {}", e);
-                            }
-                        }
-                    }
-                    Ok(SyncMessage::Shutdown) => {
-                        tracing::info!("cloud-sync: Sync thread shutting down");
-                        break;
-                    }
-                    Err(mpsc::RecvTimeoutError::Timeout) => {
-                        // Periodic sync - just notify host to trigger on_event
-                        if let Some(n) = *notifier.lock().unwrap() {
-                            (n.func)();
-                        }
-                    }
-                    Err(mpsc::RecvTimeoutError::Disconnected) => {
-                        tracing::info!("cloud-sync: Channel disconnected, stopping sync thread");
-                        break;
-                    }
-                }
-            }
+            sync_thread_main(rx, engine, pending, notifier, api_url, project_name, sync_interval);
         });
-    }
-
-    /// Perform initial pull from cloud and return commands.
-    fn initial_pull(&self) -> Vec<FfiCommand> {
-        let config = self.config.lock().unwrap().clone();
-        if !config.is_configured() {
-            return self.create_unconfigured_guidance();
-        }
-
-        let api_url = config.api_url.unwrap();
-        let api_key = config.api_key.unwrap();
-        let project_name = config.project_name.unwrap();
-
-        let client = CloudClient::new(&api_url, &api_key);
-
-        // Verify auth first
-        match client.verify_auth() {
-            Ok(true) => {}
-            Ok(false) => {
-                return self.create_error_guidance(
-                    "Authentication failed",
-                    "Check your API key in the plugin configuration",
-                );
-            }
-            Err(e) => {
-                return self.create_error_guidance(
-                    &format!("Connection failed: {}", e),
-                    "Check your API URL and network connection",
-                );
-            }
-        }
-
-        // Ensure project exists
-        let project_id = match self.engine.ensure_project(&client, &project_name) {
-            Ok(id) => id,
-            Err(e) => {
-                return self.create_error_guidance(
-                    &format!("Failed to set up project: {}", e),
-                    "Check your API connection",
-                );
-            }
-        };
-
-        // Pull remote todos
-        match self.engine.pull(&client, &project_id) {
-            Ok(commands) => {
-                *self.initialized.lock().unwrap() = true;
-                // Start background sync thread
-                self.start_sync_thread();
-                commands
-            }
-            Err(e) => self.create_error_guidance(
-                &format!("Initial sync failed: {}", e),
-                "The plugin will retry on next load",
-            ),
-        }
-    }
-
-    /// Create guidance commands for unconfigured state.
-    fn create_unconfigured_guidance(&self) -> Vec<FfiCommand> {
-        let mut commands = Vec::new();
-
-        commands.push(FfiCommand::CreateTodo {
-            content: RString::from("CLOUD SYNC: Not configured"),
-            parent_id: ROption::RNone,
-            temp_id: ROption::RSome(RString::from("cloud-sync-guidance-header")),
-            state: FfiTodoState::Empty,
-            priority: ROption::RNone,
-            indent_level: 0,
-        });
-
-        commands.push(FfiCommand::CreateTodo {
-            content: RString::from("Configure API URL, API key, and project name in plugin settings"),
-            parent_id: ROption::RNone,
-            temp_id: ROption::RSome(RString::from("cloud-sync-guidance-hint")),
-            state: FfiTodoState::Empty,
-            priority: ROption::RNone,
-            indent_level: 1,
-        });
-
-        commands
-    }
-
-    /// Create guidance commands for error state.
-    fn create_error_guidance(&self, error: &str, hint: &str) -> Vec<FfiCommand> {
-        let mut commands = Vec::new();
-
-        commands.push(FfiCommand::CreateTodo {
-            content: RString::from(format!("CLOUD SYNC ERROR: {}", error)),
-            parent_id: ROption::RNone,
-            temp_id: ROption::RSome(RString::from("cloud-sync-error-header")),
-            state: FfiTodoState::Empty,
-            priority: ROption::RNone,
-            indent_level: 0,
-        });
-
-        commands.push(FfiCommand::CreateTodo {
-            content: RString::from(hint.to_string()),
-            parent_id: ROption::RNone,
-            temp_id: ROption::RSome(RString::from("cloud-sync-error-hint")),
-            state: FfiTodoState::Empty,
-            priority: ROption::RNone,
-            indent_level: 1,
-        });
-
-        commands
     }
 
     /// Perform a push sync: read local todos and push them to cloud.
@@ -313,7 +165,20 @@ impl CloudSyncPlugin {
         }
 
         let api_url = config.api_url.unwrap();
-        let api_key = config.api_key.unwrap();
+
+        // Get token from stored state
+        let token = {
+            let state = self.engine.state.lock().unwrap();
+            match state.auth_token.clone() {
+                Some(t) => t,
+                None => {
+                    return create_error_guidance(
+                        "Not signed in yet",
+                        "Complete sign-in in browser first",
+                    );
+                }
+            }
+        };
 
         let project_id = {
             let state = self.engine.state.lock().unwrap();
@@ -323,10 +188,9 @@ impl CloudSyncPlugin {
             }
         };
 
-        // Collect local todos from the host
         let local_todos = self.collect_local_todos(host);
+        let client = CloudClient::new(&api_url, &token);
 
-        let client = CloudClient::new(&api_url, &api_key);
         match self.engine.sync(&client, &project_id, local_todos) {
             Ok(commands) => commands,
             Err(e) => {
@@ -356,9 +220,286 @@ impl std::fmt::Debug for CloudSyncPlugin {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CloudSyncPlugin")
             .field("config", &self.config)
-            .field("initialized", &self.initialized)
             .finish_non_exhaustive()
     }
+}
+
+// ============================================================================
+// Background thread: auth + sync
+// ============================================================================
+
+/// Main loop for the background sync thread.
+///
+/// Handles two phases:
+/// 1. Authentication via device code flow (if no stored token)
+/// 2. Periodic sync with the cloud
+fn sync_thread_main(
+    rx: mpsc::Receiver<SyncMessage>,
+    engine: Arc<SyncEngine>,
+    pending: Arc<Mutex<Vec<FfiCommand>>>,
+    notifier: SharedNotifier,
+    api_url: String,
+    project_name: String,
+    sync_interval: Duration,
+) {
+    // ---- Phase 1: Authenticate ----
+    let token = {
+        let stored = engine.state.lock().unwrap().auth_token.clone();
+        if let Some(token) = stored {
+            token
+        } else {
+            match run_device_auth(&rx, &engine, &pending, &notifier, &api_url) {
+                Some(token) => token,
+                None => return, // Shutdown or unrecoverable error
+            }
+        }
+    };
+
+    // ---- Phase 2: Initial pull ----
+    let client = CloudClient::new(&api_url, &token);
+
+    let project_id = match engine.ensure_project(&client, &project_name) {
+        Ok(id) => id,
+        Err(e) => {
+            if matches!(e, api::ApiClientError::Unauthorized) {
+                // Token expired — clear it so next restart re-auths
+                let mut state = engine.state.lock().unwrap();
+                state.auth_token = None;
+                let _ = models::save_sync_state(&state);
+                drop(state);
+                queue_commands(
+                    &pending,
+                    &notifier,
+                    create_error_guidance(
+                        "Session expired",
+                        "Restart the plugin to sign in again",
+                    ),
+                );
+            } else {
+                queue_commands(
+                    &pending,
+                    &notifier,
+                    create_error_guidance(
+                        &format!("Failed to set up project: {}", e),
+                        "Check your connection",
+                    ),
+                );
+            }
+            return;
+        }
+    };
+
+    match engine.pull(&client, &project_id) {
+        Ok(commands) => queue_commands(&pending, &notifier, commands),
+        Err(e) => {
+            queue_commands(
+                &pending,
+                &notifier,
+                create_error_guidance(
+                    &format!("Initial sync failed: {}", e),
+                    "Will retry on next interval",
+                ),
+            );
+        }
+    }
+
+    // ---- Phase 3: Periodic sync ----
+    loop {
+        match rx.recv_timeout(sync_interval) {
+            Ok(SyncMessage::SyncNow) | Err(mpsc::RecvTimeoutError::Timeout) => {
+                match engine.pull(&client, &project_id) {
+                    Ok(commands) => {
+                        if !commands.is_empty() {
+                            queue_commands(&pending, &notifier, commands);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("cloud-sync: Periodic sync failed: {}", e);
+                    }
+                }
+            }
+            Ok(SyncMessage::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => {
+                tracing::info!("cloud-sync: Sync thread shutting down");
+                break;
+            }
+        }
+    }
+}
+
+/// Run the device code authorization flow.
+///
+/// Returns the auth token on success, or `None` if the thread was shut down
+/// or an unrecoverable error occurred.
+fn run_device_auth(
+    rx: &mpsc::Receiver<SyncMessage>,
+    engine: &SyncEngine,
+    pending: &Arc<Mutex<Vec<FfiCommand>>>,
+    notifier: &SharedNotifier,
+    api_url: &str,
+) -> Option<String> {
+    // Request device code from server
+    let device_resp = match api::request_device_code(api_url) {
+        Ok(resp) => resp,
+        Err(e) => {
+            queue_commands(
+                pending,
+                notifier,
+                create_error_guidance(
+                    &format!("Failed to start sign-in: {}", e),
+                    "Check your API URL and network connection",
+                ),
+            );
+            return None;
+        }
+    };
+
+    // Show auth guidance to user
+    queue_commands(pending, notifier, create_auth_guidance(&device_resp));
+
+    // Poll for token
+    let poll_interval = Duration::from_secs(device_resp.interval.max(5));
+    loop {
+        match rx.recv_timeout(poll_interval) {
+            Ok(SyncMessage::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => return None,
+            _ => {}
+        }
+
+        match api::poll_device_token(api_url, &device_resp.device_code) {
+            Ok(Some(token)) => {
+                // Store token
+                {
+                    let mut state = engine.state.lock().unwrap();
+                    state.auth_token = Some(token.clone());
+                    let _ = models::save_sync_state(&state);
+                }
+
+                // Clear auth guidance
+                queue_commands(
+                    pending,
+                    notifier,
+                    vec![
+                        FfiCommand::DeleteTodo {
+                            id: RString::from("cloud-sync-auth-header"),
+                        },
+                        FfiCommand::DeleteTodo {
+                            id: RString::from("cloud-sync-auth-url"),
+                        },
+                        FfiCommand::DeleteTodo {
+                            id: RString::from("cloud-sync-auth-code"),
+                        },
+                    ],
+                );
+
+                return Some(token);
+            }
+            Ok(None) => {
+                // Still waiting — continue polling
+            }
+            Err(e) => {
+                tracing::warn!("cloud-sync: Auth poll error: {}", e);
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Guidance helpers (free functions for use from background thread)
+// ============================================================================
+
+/// Notify the host via the shared notifier.
+fn notify(notifier: &SharedNotifier) {
+    if let Some(n) = *notifier.lock().unwrap() {
+        (n.func)();
+    }
+}
+
+/// Push commands to the shared pending list and wake the host.
+fn queue_commands(
+    pending: &Arc<Mutex<Vec<FfiCommand>>>,
+    notifier: &SharedNotifier,
+    commands: Vec<FfiCommand>,
+) {
+    if commands.is_empty() {
+        return;
+    }
+    pending.lock().unwrap().extend(commands);
+    notify(notifier);
+}
+
+/// Create guidance todos for the device code sign-in flow.
+fn create_auth_guidance(device_resp: &DeviceCodeResponse) -> Vec<FfiCommand> {
+    vec![
+        FfiCommand::CreateTodo {
+            content: RString::from("CLOUD SYNC: Sign in to get started"),
+            parent_id: ROption::RNone,
+            temp_id: ROption::RSome(RString::from("cloud-sync-auth-header")),
+            state: FfiTodoState::Question,
+            priority: ROption::RNone,
+            indent_level: 0,
+        },
+        FfiCommand::CreateTodo {
+            content: RString::from(format!("Open: {}", device_resp.verification_uri)),
+            parent_id: ROption::RNone,
+            temp_id: ROption::RSome(RString::from("cloud-sync-auth-url")),
+            state: FfiTodoState::Empty,
+            priority: ROption::RNone,
+            indent_level: 1,
+        },
+        FfiCommand::CreateTodo {
+            content: RString::from(format!("Code: {}", device_resp.user_code)),
+            parent_id: ROption::RNone,
+            temp_id: ROption::RSome(RString::from("cloud-sync-auth-code")),
+            state: FfiTodoState::Empty,
+            priority: ROption::RNone,
+            indent_level: 1,
+        },
+    ]
+}
+
+/// Create guidance for unconfigured state.
+fn create_unconfigured_guidance() -> Vec<FfiCommand> {
+    vec![
+        FfiCommand::CreateTodo {
+            content: RString::from("CLOUD SYNC: Not configured"),
+            parent_id: ROption::RNone,
+            temp_id: ROption::RSome(RString::from("cloud-sync-guidance-header")),
+            state: FfiTodoState::Empty,
+            priority: ROption::RNone,
+            indent_level: 0,
+        },
+        FfiCommand::CreateTodo {
+            content: RString::from(
+                "Set API URL and project name in plugin settings",
+            ),
+            parent_id: ROption::RNone,
+            temp_id: ROption::RSome(RString::from("cloud-sync-guidance-hint")),
+            state: FfiTodoState::Empty,
+            priority: ROption::RNone,
+            indent_level: 1,
+        },
+    ]
+}
+
+/// Create guidance for error state.
+fn create_error_guidance(error: &str, hint: &str) -> Vec<FfiCommand> {
+    vec![
+        FfiCommand::CreateTodo {
+            content: RString::from(format!("CLOUD SYNC ERROR: {}", error)),
+            parent_id: ROption::RNone,
+            temp_id: ROption::RSome(RString::from("cloud-sync-error-header")),
+            state: FfiTodoState::Exclamation,
+            priority: ROption::RNone,
+            indent_level: 0,
+        },
+        FfiCommand::CreateTodo {
+            content: RString::from(hint.to_string()),
+            parent_id: ROption::RNone,
+            temp_id: ROption::RSome(RString::from("cloud-sync-error-hint")),
+            state: FfiTodoState::Empty,
+            priority: ROption::RNone,
+            indent_level: 1,
+        },
+    ]
 }
 
 // ============================================================================
@@ -379,7 +520,6 @@ impl Plugin for CloudSyncPlugin {
     }
 
     fn generate(&self, _input: RString) -> RResult<RVec<FfiTodoItem>, RString> {
-        // This plugin uses execute_with_host() and events instead of generate()
         RResult::ROk(RVec::new())
     }
 
@@ -391,17 +531,6 @@ impl Plugin for CloudSyncPlugin {
             default: ROption::RNone,
             description: ROption::RSome(RString::from(
                 "Cloud API endpoint URL (e.g., https://api.totui.app)",
-            )),
-            options: RVec::new(),
-        };
-
-        let api_key_field = FfiConfigField {
-            name: RString::from("api_key"),
-            field_type: FfiConfigType::String,
-            required: true,
-            default: ROption::RNone,
-            description: ROption::RSome(RString::from(
-                "API authentication key",
             )),
             options: RVec::new(),
         };
@@ -429,14 +558,9 @@ impl Plugin for CloudSyncPlugin {
         };
 
         FfiConfigSchema {
-            fields: vec![
-                api_url_field,
-                api_key_field,
-                project_name_field,
-                sync_interval_field,
-            ]
-            .into_iter()
-            .collect(),
+            fields: vec![api_url_field, project_name_field, sync_interval_field]
+                .into_iter()
+                .collect(),
             config_required: true,
         }
     }
@@ -444,18 +568,10 @@ impl Plugin for CloudSyncPlugin {
     fn on_config_loaded(&self, config: RHashMap<RString, FfiConfigValue>) {
         let mut plugin_config = self.config.lock().unwrap();
 
-        // Extract config values
         if let Some(FfiConfigValue::String(url)) = config.get(&RString::from("api_url")) {
             let url_str = url.to_string();
             if !url_str.is_empty() {
                 plugin_config.api_url = Some(url_str);
-            }
-        }
-
-        if let Some(FfiConfigValue::String(key)) = config.get(&RString::from("api_key")) {
-            let key_str = key.to_string();
-            if !key_str.is_empty() {
-                plugin_config.api_key = Some(key_str);
             }
         }
 
@@ -476,15 +592,15 @@ impl Plugin for CloudSyncPlugin {
             }
         }
 
-        // If fully configured, trigger initial sync
         if plugin_config.is_configured() {
             drop(plugin_config);
-            // Queue initial pull - will be executed on next on_event
-            let commands = self.initial_pull();
-            if !commands.is_empty() {
-                self.pending_commands.lock().unwrap().extend(commands);
-                self.notify_host();
-            }
+            // Start background thread — handles auth + initial pull + periodic sync
+            self.start_sync_thread();
+        } else {
+            drop(plugin_config);
+            let commands = create_unconfigured_guidance();
+            self.pending_commands.lock().unwrap().extend(commands);
+            self.notify_host();
         }
     }
 
@@ -493,7 +609,6 @@ impl Plugin for CloudSyncPlugin {
         _input: RString,
         host: HostApi_TO<'_, RBox<()>>,
     ) -> RResult<RVec<FfiCommand>, RString> {
-        // Manual invocation: do a full push+pull sync
         let commands = self.push_sync(&host);
         RResult::ROk(commands.into_iter().collect())
     }
@@ -506,7 +621,6 @@ impl Plugin for CloudSyncPlugin {
 
     fn on_event(&self, event: FfiEvent) -> RResult<FfiHookResponse, RString> {
         if let FfiEvent::OnLoad { .. } = event {
-            // Return any pending commands (from initial pull or background sync)
             let pending = {
                 let mut cmds = self.pending_commands.lock().unwrap();
                 std::mem::take(&mut *cmds)
@@ -529,7 +643,6 @@ impl Plugin for CloudSyncPlugin {
 
 impl Drop for CloudSyncPlugin {
     fn drop(&mut self) {
-        // Signal sync thread to stop
         if let Some(tx) = self.sync_tx.lock().unwrap().take() {
             let _ = tx.send(SyncMessage::Shutdown);
         }
@@ -551,7 +664,6 @@ mod tests {
     fn test_plugin_config_configured() {
         let config = PluginConfig {
             api_url: Some("https://api.example.com".to_string()),
-            api_key: Some("test-key".to_string()),
             project_name: Some("Test".to_string()),
             sync_interval: 30,
         };
@@ -566,15 +678,26 @@ mod tests {
 
     #[test]
     fn test_unconfigured_guidance() {
-        let plugin = CloudSyncPlugin::new();
-        let commands = plugin.create_unconfigured_guidance();
+        let commands = create_unconfigured_guidance();
         assert_eq!(commands.len(), 2);
     }
 
     #[test]
     fn test_error_guidance() {
-        let plugin = CloudSyncPlugin::new();
-        let commands = plugin.create_error_guidance("test error", "try again");
+        let commands = create_error_guidance("test error", "try again");
         assert_eq!(commands.len(), 2);
+    }
+
+    #[test]
+    fn test_auth_guidance() {
+        let device_resp = DeviceCodeResponse {
+            device_code: "dev-123".to_string(),
+            user_code: "ABCD-1234".to_string(),
+            verification_uri: "https://totui.app/activate".to_string(),
+            interval: 5,
+            expires_in: 600,
+        };
+        let commands = create_auth_guidance(&device_resp);
+        assert_eq!(commands.len(), 3);
     }
 }

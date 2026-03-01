@@ -130,6 +130,72 @@ impl CloudClient {
 }
 
 // ============================================================================
+// Device code auth (unauthenticated endpoints)
+// ============================================================================
+
+/// Initiate a device code authorization flow.
+///
+/// Calls `POST /api/v1/auth/device` to get a device code and verification URL
+/// that the user can open in a browser to authenticate.
+pub fn request_device_code(api_url: &str) -> Result<DeviceCodeResponse, ApiClientError> {
+    let url = format!(
+        "{}/api/v1/auth/device",
+        api_url.trim_end_matches('/')
+    );
+
+    let resp = ureq::post(&url)
+        .set("Content-Type", "application/json")
+        .call()
+        .map_err(ApiClientError::from_ureq)?;
+
+    resp.into_json::<DeviceCodeResponse>()
+        .map_err(|e| ApiClientError::Parse(e.to_string()))
+}
+
+/// Poll for a device code token.
+///
+/// Calls `POST /api/v1/auth/device/token` with the device code.
+/// Returns `Ok(Some(token))` on success, `Ok(None)` if still pending,
+/// or `Err` on failure (expired, denied, network error).
+pub fn poll_device_token(
+    api_url: &str,
+    device_code: &str,
+) -> Result<Option<String>, ApiClientError> {
+    let url = format!(
+        "{}/api/v1/auth/device/token",
+        api_url.trim_end_matches('/')
+    );
+
+    let body = DeviceTokenRequest {
+        device_code: device_code.to_string(),
+    };
+
+    match ureq::post(&url)
+        .set("Content-Type", "application/json")
+        .send_json(&body)
+    {
+        Ok(resp) => {
+            let token_resp: DeviceTokenResponse = resp
+                .into_json()
+                .map_err(|e| ApiClientError::Parse(e.to_string()))?;
+            Ok(Some(token_resp.access_token))
+        }
+        Err(ureq::Error::Status(status, resp)) => {
+            let body = resp.into_string().unwrap_or_default();
+            if body.contains("authorization_pending") || body.contains("slow_down") {
+                Ok(None)
+            } else {
+                Err(ApiClientError::Server {
+                    status,
+                    message: body,
+                })
+            }
+        }
+        Err(ureq::Error::Transport(t)) => Err(ApiClientError::Network(t.to_string())),
+    }
+}
+
+// ============================================================================
 // Error handling
 // ============================================================================
 
