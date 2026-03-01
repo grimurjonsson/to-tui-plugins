@@ -1,1 +1,0 @@
-/home/user/to-tui-plugins/cloud-sync/target/release/libcloud_sync.so: /home/user/to-tui-plugins/cloud-sync/src/api.rs /home/user/to-tui-plugins/cloud-sync/src/lib.rs /home/user/to-tui-plugins/cloud-sync/src/models.rs /home/user/to-tui-plugins/cloud-sync/src/sync.rs
